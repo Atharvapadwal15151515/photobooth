@@ -238,19 +238,6 @@ const createCardBuffer = async ({
   creatorPhotos,
   recipientPhotos,
 }) => {
-  const longestHeadingLine = Math.max(
-  ...headingLines.map(
-    (line) => line.length
-  )
-);
-
-const headingFontSize =
-  longestHeadingLine > 25
-    ? 38
-    : longestHeadingLine > 18
-      ? 44
-      : 50;
-      
   const background =
     getThemeBackground(booth.theme);
 
@@ -273,27 +260,6 @@ const headingFontSize =
       secondPhoto.photo_number
   );
 
-const photoWidth = 340;
-const photoHeight = 245;
-
-  const leftMargin = 70;
-  const columnGap = 60;
-
-  const creatorPhotoX = leftMargin;
-
-  const recipientPhotoX =
-    creatorPhotoX +
-    photoWidth +
-    columnGap;
-
-  const firstRowY =
-  headingLines.length > 1
-    ? 375
-    : 335;
-  const rowGap = 30;
-
-  const photoRadius = 28;
-
   const creatorName =
     booth.creator_name || "Creator";
 
@@ -315,39 +281,29 @@ const photoHeight = 245;
       year: "numeric",
     }).format(new Date());
 
-  const truncateText = (
-    value,
-    maximumLength
-  ) => {
-    const text = String(value || "");
-
-    if (text.length <= maximumLength) {
-      return text;
-    }
-
-    return `${text.slice(
-      0,
-      maximumLength - 3
-    )}...`;
-  };
+  /*
+  |--------------------------------------------------------------------------
+  | Prepare text
+  |--------------------------------------------------------------------------
+  */
 
   const headingLines = wrapText(
-  heading,
-  28,
-  2
-);
+    heading,
+    28,
+    2
+  );
 
-const messageLines = wrapText(
-  message,
-  42,
-  2
-);
+  const messageLines = wrapText(
+    message,
+    42,
+    2
+  );
 
-const safeHeadingLines =
-  headingLines.map(escapeXml);
+  const safeHeadingLines =
+    headingLines.map(escapeXml);
 
-const safeMessageLines =
-  messageLines.map(escapeXml);
+  const safeMessageLines =
+    messageLines.map(escapeXml);
 
   const safeCreatorName = escapeXml(
     truncateText(creatorName, 18)
@@ -357,11 +313,56 @@ const safeMessageLines =
     truncateText(recipientName, 18)
   );
 
+  const longestHeadingLine = Math.max(
+    0,
+    ...headingLines.map(
+      (line) => line.length
+    )
+  );
+
+  const headingFontSize =
+    longestHeadingLine > 25
+      ? 38
+      : longestHeadingLine > 18
+        ? 44
+        : 50;
+
   /*
   |--------------------------------------------------------------------------
-  | Background decorations
+  | Photo layout
   |--------------------------------------------------------------------------
   */
+
+  const photoWidth = 340;
+const photoHeight = 245;
+
+const columnGap = 60;
+const rowGap = 30;
+const photoRadius = 28;
+
+const totalPhotosWidth =
+  photoWidth * 2 + columnGap;
+
+const leftMargin =
+  Math.round(
+    (CARD_WIDTH - totalPhotosWidth) / 2
+  );
+
+const creatorPhotoX = leftMargin;
+
+const recipientPhotoX =
+  creatorPhotoX +
+  photoWidth +
+  columnGap;
+
+const firstRowY =
+  headingLines.length > 1
+    ? 375
+    : 335;
+
+const columnLabelsY =
+  firstRowY - 35;
+
 const backgroundSvg = `
   <svg
     width="${CARD_WIDTH}"
@@ -453,57 +454,54 @@ const backgroundSvg = `
     />
 
     ${Array.from({
-      length: booth.photo_count,
-    })
-      .map((_, index) => {
-        const top =
-          firstRowY +
-          index *
-            (photoHeight + rowGap);
+  length: booth.photo_count,
+})
+  .map((_, index) => {
+    const top =
+      firstRowY +
+      index * (photoHeight + rowGap);
 
-        return `
-          <rect
-            x="${creatorPhotoX - 12}"
-            y="${top - 12}"
-            width="${photoWidth + 24}"
-            height="${photoHeight + 24}"
-            rx="${photoRadius + 10}"
-            fill="#ffffff"
-            opacity="0.96"
-          />
+    return `
+      <rect
+        x="${creatorPhotoX - 8}"
+        y="${top - 4}"
+        width="${photoWidth + 24}"
+        height="${photoHeight + 24}"
+        rx="${photoRadius + 10}"
+        fill="#000000"
+        opacity="0.09"
+      />
 
-          <rect
-            x="${creatorPhotoX - 6}"
-            y="${top - 4}"
-            width="${photoWidth + 12}"
-            height="${photoHeight + 16}"
-            rx="${photoRadius + 7}"
-            fill="#000000"
-            opacity="0.07"
-          />
+      <rect
+        x="${creatorPhotoX - 12}"
+        y="${top - 12}"
+        width="${photoWidth + 24}"
+        height="${photoHeight + 24}"
+        rx="${photoRadius + 10}"
+        fill="#ffffff"
+      />
 
-          <rect
-            x="${recipientPhotoX - 12}"
-            y="${top - 12}"
-            width="${photoWidth + 24}"
-            height="${photoHeight + 24}"
-            rx="${photoRadius + 10}"
-            fill="#ffffff"
-            opacity="0.96"
-          />
+      <rect
+        x="${recipientPhotoX - 8}"
+        y="${top - 4}"
+        width="${photoWidth + 24}"
+        height="${photoHeight + 24}"
+        rx="${photoRadius + 10}"
+        fill="#000000"
+        opacity="0.09"
+      />
 
-          <rect
-            x="${recipientPhotoX - 6}"
-            y="${top - 4}"
-            width="${photoWidth + 12}"
-            height="${photoHeight + 16}"
-            rx="${photoRadius + 7}"
-            fill="#000000"
-            opacity="0.07"
-          />
-        `;
-      })
-      .join("")}
+      <rect
+        x="${recipientPhotoX - 12}"
+        y="${top - 12}"
+        width="${photoWidth + 24}"
+        height="${photoHeight + 24}"
+        rx="${photoRadius + 10}"
+        fill="#ffffff"
+      />
+    `;
+  })
+  .join("")}
   </svg>
 `;
 
@@ -594,8 +592,7 @@ const separatorY =
     ? 320
     : 282;
 
-const columnLabelsY =
-  firstRowY - 15;
+
 
 const footerLineY = 1512;
 
