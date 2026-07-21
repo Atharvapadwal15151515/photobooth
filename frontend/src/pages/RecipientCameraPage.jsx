@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import Navbar from "../components/Navbar";
@@ -9,6 +9,7 @@ import {
   completeParticipant,
   deletePhoto,
   generateCard,
+  replacePhoto,
   uploadPhoto,
 } from "../api/api";
 
@@ -16,14 +17,28 @@ function RecipientCameraPage() {
   const navigate = useNavigate();
   const { boothId, participantId } = useParams();
 
-  const storedBooth = JSON.parse(
-    localStorage.getItem("recipientBooth") || "{}"
-  );
+  const storedBooth = useMemo(() => {
+    try {
+      return JSON.parse(
+        localStorage.getItem("recipientBooth") || "{}"
+      );
+    } catch (error) {
+      console.error(
+        "Unable to read recipient booth data:",
+        error
+      );
 
-  const requiredCount = Number(
-    storedBooth.photoCount ||
-      storedBooth.photo_count ||
-      4
+      return {};
+    }
+  }, []);
+
+  const requiredCount = Math.max(
+    1,
+    Number(
+      storedBooth.photoCount ??
+        storedBooth.photo_count ??
+        4
+    ) || 4
   );
 
   const [photos, setPhotos] = useState([]);
@@ -48,17 +63,6 @@ function RecipientCameraPage() {
     };
   }, []);
 
-  const extractUploadedPhoto = (response) => {
-    const responseBody = response?.data ?? response ?? {};
-
-    return (
-      responseBody?.data?.photo ??
-      responseBody?.data ??
-      responseBody?.photo ??
-      responseBody
-    );
-  };
-
   const getPhotoId = (photo) => {
     return (
       photo?.photo_id ??
@@ -68,36 +72,91 @@ function RecipientCameraPage() {
     );
   };
 
+  const extractUploadedPhoto = (response) => {
+    return (
+      response?.data?.data?.photo ??
+      response?.data?.data ??
+      response?.data?.photo ??
+      response?.data ??
+      response?.photo ??
+      response ??
+      {}
+    );
+  };
+
+  const releasePreviewUrl = (previewUrl) => {
+    if (previewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(previewUrl);
+    }
+  };
+
   const handleCapture = async (captureResult) => {
-    const file = captureResult?.file ?? null;
-    const previewUrl = captureResult?.previewUrl ?? null;
+    /*
+     * Supports both:
+     *
+     * onCapture(file)
+     *
+     * and:
+     *
+     * onCapture({
+     *   file,
+     *   previewUrl
+     * })
+     */
+
+    const file =
+      captureResult instanceof Blob
+        ? captureResult
+        : captureResult?.file ?? null;
+
+    let previewUrl =
+      captureResult instanceof Blob
+        ? ""
+        : captureResult?.previewUrl ?? "";
 
     console.log("Recipient capture received:", {
+      captureResult,
       file,
-      previewUrl,
+      isFile:
+        typeof File !== "undefined" &&
+        file instanceof File,
       isBlob: file instanceof Blob,
+      type: file?.type,
       size: file?.size,
+      boothId,
+      participantId,
     });
 
-    if (!(file instanceof Blob) || file.size === 0) {
-      if (previewUrl?.startsWith("blob:")) {
-        URL.revokeObjectURL(previewUrl);
-      }
-
+    if (!(file instanceof Blob)) {
       setError(
-        "The camera did not produce a valid image file."
+        "The camera did not return a valid image file."
+      );
+
+      return;
+    }
+
+    if (file.size === 0) {
+      setError("The captured image file is empty.");
+      return;
+    }
+
+    if (
+      !file.type ||
+      !file.type.startsWith("image/")
+    ) {
+      setError(
+        "The captured file is not a valid image."
       );
 
       return;
     }
 
     if (!previewUrl) {
-      setError("The photo preview could not be created.");
-      return;
+      previewUrl = URL.createObjectURL(file);
     }
 
     if (!boothId || !participantId) {
-      URL.revokeObjectURL(previewUrl);
+      releasePreviewUrl(previewUrl);
 
       setError(
         "The booth or recipient participant information is missing."
@@ -106,8 +165,8 @@ function RecipientCameraPage() {
       return;
     }
 
-    if (isUploading) {
-      URL.revokeObjectURL(previewUrl);
+    if (isUploading || isCompleting) {
+      releasePreviewUrl(previewUrl);
       return;
     }
 
@@ -116,8 +175,14 @@ function RecipientCameraPage() {
         ? captureIndex + 1
         : photos.length + 1;
 
-    if (photoNumber > requiredCount) {
-      URL.revokeObjectURL(previewUrl);
+    if (
+      !Number.isInteger(photoNumber) ||
+      photoNumber < 1 ||
+      photoNumber > requiredCount
+    ) {
+      releasePreviewUrl(previewUrl);
+
+      setError("The photo number is invalid.");
       return;
     }
 
@@ -130,67 +195,84 @@ function RecipientCameraPage() {
           ? photos[captureIndex]
           : null;
 
-      const existingPhotoId = getPhotoId(existingPhoto);
+      const existingPhotoId =
+        getPhotoId(existingPhoto);
 
+      let response;
+
+      /*
+       * Retake an existing photo through the replace endpoint.
+       * Do not delete the old photo first.
+       */
       if (existingPhotoId) {
-        await deletePhoto(existingPhotoId);
+        response = await replacePhoto({
+          photoId: existingPhotoId,
+          image: file,
+        });
+      } else {
+        response = await uploadPhoto({
+          image: file,
+          boothId,
+          participantId,
+          photoNumber,
+        });
       }
 
-      const response = await uploadPhoto({
-        image: file,
-        boothId,
-        participantId,
-        photoNumber,
-      });
-
-      const uploadedPhoto = extractUploadedPhoto(response);
+      const uploadedPhoto =
+        extractUploadedPhoto(response);
 
       const photoRecord = {
         ...uploadedPhoto,
 
         photo_id:
-          uploadedPhoto?.photo_id ??
-          uploadedPhoto?.photoId ??
-          uploadedPhoto?.id ??
-          null,
+          getPhotoId(uploadedPhoto) ??
+          existingPhotoId,
 
-        photo_number:
+        photo_number: Number(
           uploadedPhoto?.photo_number ??
-          uploadedPhoto?.photoNumber ??
-          photoNumber,
+            uploadedPhoto?.photoNumber ??
+            photoNumber
+        ),
 
         previewUrl,
-        file,
       };
 
       setPhotos((currentPhotos) => {
         if (captureIndex !== null) {
-          const updatedPhotos = [...currentPhotos];
-          const oldPhoto = updatedPhotos[captureIndex];
+          const updatedPhotos = [
+            ...currentPhotos,
+          ];
+
+          const previousPhoto =
+            updatedPhotos[captureIndex];
 
           if (
-            oldPhoto?.previewUrl?.startsWith("blob:") &&
-            oldPhoto.previewUrl !== previewUrl
+            previousPhoto?.previewUrl &&
+            previousPhoto.previewUrl !== previewUrl
           ) {
-            URL.revokeObjectURL(oldPhoto.previewUrl);
+            releasePreviewUrl(
+              previousPhoto.previewUrl
+            );
           }
 
-          updatedPhotos[captureIndex] = photoRecord;
+          updatedPhotos[captureIndex] =
+            photoRecord;
 
           return updatedPhotos;
         }
 
-        return [...currentPhotos, photoRecord];
+        return [
+          ...currentPhotos,
+          photoRecord,
+        ];
       });
 
       setCaptureIndex(null);
     } catch (requestError) {
-      if (previewUrl?.startsWith("blob:")) {
-        URL.revokeObjectURL(previewUrl);
-      }
+      releasePreviewUrl(previewUrl);
 
       console.error(
-        "Recipient photo upload error:",
+        "Recipient photo upload failed:",
         requestError
       );
 
@@ -210,44 +292,60 @@ function RecipientCameraPage() {
       return;
     }
 
+    const selectedPhoto = photos[index];
+
+    if (!selectedPhoto) {
+      setError(
+        "The selected photo could not be found."
+      );
+
+      return;
+    }
+
     setCaptureIndex(index);
     setError("");
   };
 
   const handleRemove = async (index) => {
-    const photo = photos[index];
-
-    if (!photo || isUploading || isCompleting) {
+    if (isUploading || isCompleting) {
       return;
     }
+
+    const selectedPhoto = photos[index];
+
+    if (!selectedPhoto) {
+      return;
+    }
+
+    const photoId = getPhotoId(selectedPhoto);
 
     try {
       setIsUploading(true);
       setError("");
 
-      const photoId = getPhotoId(photo);
-
       if (photoId) {
         await deletePhoto(photoId);
       }
 
-      if (photo.previewUrl?.startsWith("blob:")) {
-        URL.revokeObjectURL(photo.previewUrl);
-      }
+      releasePreviewUrl(
+        selectedPhoto.previewUrl
+      );
 
+      /*
+       * Do not renumber the remaining database photos.
+       * The next captured photo fills the first missing position.
+       */
       setPhotos((currentPhotos) =>
-        currentPhotos
-          .filter((_, photoIndex) => photoIndex !== index)
-          .map((currentPhoto, newIndex) => ({
-            ...currentPhoto,
-            photo_number: newIndex + 1,
-          }))
+        currentPhotos.filter(
+          (_, currentIndex) =>
+            currentIndex !== index
+        )
       );
 
       setCaptureIndex(null);
     } catch (requestError) {
       console.error(
-        "Recipient photo removal error:",
+        "Recipient photo deletion failed:",
         requestError
       );
 
@@ -272,7 +370,10 @@ function RecipientCameraPage() {
     }
 
     if (!participantId || !boothId) {
-      setError("Recipient session information is missing.");
+      setError(
+        "Recipient session information is missing."
+      );
+
       return;
     }
 
@@ -286,7 +387,7 @@ function RecipientCameraPage() {
       navigate(`/booth/${boothId}/card`);
     } catch (requestError) {
       console.error(
-        "Complete recipient participant error:",
+        "Recipient completion or card generation failed:",
         requestError
       );
 
@@ -307,6 +408,11 @@ function RecipientCameraPage() {
     (photos.length >= requiredCount &&
       captureIndex === null);
 
+  const recipientName =
+    storedBooth.recipientName ??
+    storedBooth.recipient_name ??
+    "";
+
   return (
     <>
       <Navbar />
@@ -317,14 +423,15 @@ function RecipientCameraPage() {
             <span>Recipient photos</span>
 
             <h1>
-              {storedBooth.recipientName
-                ? `${storedBooth.recipientName}, it is your turn`
+              {recipientName
+                ? `${recipientName}, it is your turn`
                 : "It is your turn"}
             </h1>
 
             <p>
-              Take {requiredCount} photos. After you finish, the
-              shared card will be generated.
+              Take {requiredCount} photos. After you
+              finish, the shared card will be
+              generated.
             </p>
           </div>
 
@@ -341,13 +448,23 @@ function RecipientCameraPage() {
               isUploading
                 ? "Uploading..."
                 : captureIndex !== null
-                  ? `Retake Photo ${captureIndex + 1}`
-                  : `Take Photo ${photos.length + 1}`
+                  ? `Retake Photo ${
+                      captureIndex + 1
+                    }`
+                  : photos.length <
+                      requiredCount
+                    ? `Take Photo ${
+                        photos.length + 1
+                      }`
+                    : "All Photos Taken"
             }
           />
 
           {error && (
-            <p className="form-error" role="alert">
+            <p
+              className="form-error"
+              role="alert"
+            >
               {error}
             </p>
           )}

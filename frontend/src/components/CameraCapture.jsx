@@ -15,10 +15,8 @@ function CameraCapture({
   const [cameraError, setCameraError] = useState("");
 
   const stopCamera = useCallback(() => {
-    const stream = streamRef.current;
-
-    if (stream) {
-      stream.getTracks().forEach((track) => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => {
         track.stop();
       });
 
@@ -63,10 +61,23 @@ function CameraCapture({
       const video = videoRef.current;
 
       if (!video) {
-        throw new Error("Camera preview could not be initialized.");
+        throw new Error(
+          "Camera preview could not be initialized."
+        );
       }
 
       video.srcObject = stream;
+
+      await new Promise((resolve) => {
+        if (video.readyState >= 2) {
+          resolve();
+          return;
+        }
+
+        video.onloadedmetadata = () => {
+          resolve();
+        };
+      });
 
       await video.play();
     } catch (error) {
@@ -77,14 +88,16 @@ function CameraCapture({
           "Camera permission was denied. Allow camera access and reload the page."
         );
       } else if (error?.name === "NotFoundError") {
-        setCameraError("No camera was found on this device.");
+        setCameraError(
+          "No camera was found on this device."
+        );
       } else if (error?.name === "NotReadableError") {
         setCameraError(
-          "The camera is being used by another application."
+          "The camera is already being used by another application."
         );
       } else if (error?.name === "OverconstrainedError") {
         setCameraError(
-          "The selected camera is not available on this device."
+          "The selected camera is unavailable."
         );
       } else {
         setCameraError(
@@ -110,7 +123,9 @@ function CameraCapture({
         (blob) => {
           if (!blob || blob.size === 0) {
             reject(
-              new Error("The captured image could not be created.")
+              new Error(
+                "The captured image could not be converted into a file."
+              )
             );
 
             return;
@@ -125,7 +140,11 @@ function CameraCapture({
   };
 
   const handleTakePhoto = async () => {
-    if (disabled || isCapturing || isStarting) {
+    if (
+      disabled ||
+      isCapturing ||
+      isStarting
+    ) {
       return;
     }
 
@@ -138,7 +157,7 @@ function CameraCapture({
     }
 
     if (
-      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+      video.readyState < 2 ||
       video.videoWidth === 0 ||
       video.videoHeight === 0
     ) {
@@ -149,7 +168,7 @@ function CameraCapture({
       return;
     }
 
-    let previewUrl = null;
+    let previewUrl = "";
 
     try {
       setIsCapturing(true);
@@ -158,12 +177,16 @@ function CameraCapture({
       const sourceWidth = video.videoWidth;
       const sourceHeight = video.videoHeight;
 
-      /*
-       * Capture a square image from the centre of the video.
-       */
-      const squareSize = Math.min(sourceWidth, sourceHeight);
-      const sourceX = (sourceWidth - squareSize) / 2;
-      const sourceY = (sourceHeight - squareSize) / 2;
+      const squareSize = Math.min(
+        sourceWidth,
+        sourceHeight
+      );
+
+      const sourceX =
+        (sourceWidth - squareSize) / 2;
+
+      const sourceY =
+        (sourceHeight - squareSize) / 2;
 
       canvas.width = squareSize;
       canvas.height = squareSize;
@@ -171,18 +194,26 @@ function CameraCapture({
       const context = canvas.getContext("2d");
 
       if (!context) {
-        throw new Error("Unable to prepare the captured image.");
+        throw new Error(
+          "Unable to prepare the image canvas."
+        );
       }
 
-      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
 
-      /*
-       * The front-camera saved image is mirrored to match
-       * the preview shown to the user.
-       */
       if (facingMode === "user") {
         context.save();
-        context.translate(canvas.width, 0);
+
+        context.translate(
+          canvas.width,
+          0
+        );
+
         context.scale(-1, 1);
 
         context.drawImage(
@@ -223,33 +254,53 @@ function CameraCapture({
         }
       );
 
-      if (!(file instanceof Blob) || file.size === 0) {
+      if (!(file instanceof File)) {
         throw new Error(
-          "The camera did not produce a valid image file."
+          "The captured image is not a valid file."
         );
       }
 
-      previewUrl = URL.createObjectURL(file);
+      if (file.size === 0) {
+        throw new Error(
+          "The captured image file is empty."
+        );
+      }
 
-      console.log("Camera captured file:", {
-        name: file.name,
-        type: file.type,
-        size: file.size,
-      });
+      previewUrl =
+        URL.createObjectURL(file);
+
+      console.log(
+        "CameraCapture generated file:",
+        {
+          isFile: file instanceof File,
+          isBlob: file instanceof Blob,
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          previewUrl,
+        }
+      );
 
       await onCapture({
         file,
         previewUrl,
       });
     } catch (error) {
-      console.error("Photo capture error:", error);
+      console.error(
+        "Photo capture failed:",
+        error
+      );
 
-      if (previewUrl?.startsWith("blob:")) {
+      if (
+        previewUrl &&
+        previewUrl.startsWith("blob:")
+      ) {
         URL.revokeObjectURL(previewUrl);
       }
 
       setCameraError(
-        error?.message || "Unable to capture the photo."
+        error?.message ||
+          "Unable to capture the photo."
       );
     } finally {
       setIsCapturing(false);
@@ -257,12 +308,18 @@ function CameraCapture({
   };
 
   const handleSwitchCamera = () => {
-    if (disabled || isCapturing || isStarting) {
+    if (
+      disabled ||
+      isCapturing ||
+      isStarting
+    ) {
       return;
     }
 
     setFacingMode((currentMode) =>
-      currentMode === "user" ? "environment" : "user"
+      currentMode === "user"
+        ? "environment"
+        : "user"
     );
   };
 
@@ -290,12 +347,17 @@ function CameraCapture({
         <canvas
           ref={canvasRef}
           aria-hidden="true"
-          style={{ display: "none" }}
+          style={{
+            display: "none",
+          }}
         />
       </div>
 
       {cameraError && (
-        <p className="form-error" role="alert">
+        <p
+          className="form-error"
+          role="alert"
+        >
           {cameraError}
         </p>
       )}
@@ -308,18 +370,23 @@ function CameraCapture({
           disabled={
             disabled ||
             isStarting ||
-            isCapturing ||
-            Boolean(cameraError)
+            isCapturing
           }
         >
-          {isCapturing ? "Capturing..." : buttonText}
+          {isCapturing
+            ? "Taking Photo..."
+            : buttonText}
         </button>
 
         <button
           type="button"
           className="secondary-button camera-switch-button"
           onClick={handleSwitchCamera}
-          disabled={disabled || isStarting || isCapturing}
+          disabled={
+            disabled ||
+            isStarting ||
+            isCapturing
+          }
         >
           Switch Camera
         </button>
