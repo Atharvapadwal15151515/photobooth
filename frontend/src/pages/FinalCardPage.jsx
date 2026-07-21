@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
+import {
+  Link,
+  useParams,
+} from "react-router-dom";
 
 import Navbar from "../components/Navbar";
 import LoadingScreen from "../components/LoadingScreen";
+import "../styles/final-card.css";
 
 import {
   getBoothById,
@@ -15,7 +23,10 @@ function FinalCardPage() {
   const [card, setCard] = useState(null);
   const [booth, setBooth] = useState(null);
   const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] =
+    useState(true);
+  const [isDownloading, setIsDownloading] =
+    useState(false);
 
   const extractBooth = (response) => {
     return (
@@ -58,8 +69,12 @@ function FinalCardPage() {
           getGeneratedCard(boothId),
         ]);
 
-      if (boothResult.status === "fulfilled") {
-        setBooth(extractBooth(boothResult.value));
+      if (
+        boothResult.status === "fulfilled"
+      ) {
+        setBooth(
+          extractBooth(boothResult.value)
+        );
       } else {
         console.error(
           "Unable to load booth:",
@@ -67,7 +82,9 @@ function FinalCardPage() {
         );
       }
 
-      if (cardResult.status === "fulfilled") {
+      if (
+        cardResult.status === "fulfilled"
+      ) {
         const generatedCard = extractCard(
           cardResult.value
         );
@@ -105,8 +122,10 @@ function FinalCardPage() {
       }
     } catch (requestError) {
       setError(
-        requestError?.response?.data?.message ??
-          requestError?.response?.data?.error ??
+        requestError?.response?.data
+          ?.message ??
+          requestError?.response?.data
+            ?.error ??
           requestError?.message ??
           "Unable to load this photo booth."
       );
@@ -142,6 +161,67 @@ function FinalCardPage() {
     booth?.recipientName ??
     "Recipient";
 
+  const handleDownload = async () => {
+    if (!cardUrl || isDownloading) {
+      return;
+    }
+
+    try {
+      setIsDownloading(true);
+      setError("");
+
+      const response = await fetch(cardUrl);
+
+      if (!response.ok) {
+        throw new Error(
+          "Unable to download the photo strip."
+        );
+      }
+
+      const imageBlob =
+        await response.blob();
+
+      const temporaryUrl =
+        URL.createObjectURL(imageBlob);
+
+      const downloadLink =
+        document.createElement("a");
+
+      const safeFileName = boothTitle
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+
+      downloadLink.href = temporaryUrl;
+      downloadLink.download = `${
+        safeFileName || "photo-booth"
+      }-strip.png`;
+
+      document.body.appendChild(
+        downloadLink
+      );
+
+      downloadLink.click();
+      downloadLink.remove();
+
+      URL.revokeObjectURL(
+        temporaryUrl
+      );
+    } catch (downloadError) {
+      console.error(
+        "Download failed:",
+        downloadError
+      );
+
+      setError(
+        downloadError?.message ||
+          "Unable to download the photo strip."
+      );
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <LoadingScreen message="Loading the final card..." />
@@ -156,7 +236,9 @@ function FinalCardPage() {
         <section className="final-card-page">
           {error ? (
             <div className="error-card">
-              <h1>Unable to open the card</h1>
+              <h1>
+                Unable to open the card
+              </h1>
 
               <p>{error}</p>
 
@@ -171,12 +253,15 @@ function FinalCardPage() {
           ) : cardUrl ? (
             <>
               <div className="page-heading">
-                <span>Photo booth completed</span>
+                <span>
+                  Photo booth completed
+                </span>
 
                 <h1>{boothTitle}</h1>
 
                 <p>
-                  {creatorName} and {recipientName} created
+                  {creatorName} and{" "}
+                  {recipientName} created
                   this card together.
                 </p>
               </div>
@@ -190,11 +275,22 @@ function FinalCardPage() {
               </div>
 
               <div className="page-actions">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={handleDownload}
+                  disabled={isDownloading}
+                >
+                  {isDownloading
+                    ? "Downloading..."
+                    : "Download Photo Strip"}
+                </button>
+
                 <a
                   href={cardUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="primary-button"
+                  className="secondary-button"
                 >
                   Open Full Image
                 </a>
@@ -214,16 +310,20 @@ function FinalCardPage() {
               </div>
 
               <span className="waiting-label">
-                Waiting for the other person
+                Waiting for the other
+                person
               </span>
 
               <h1>
-                The final card is not ready yet
+                The final card is not
+                ready yet
               </h1>
 
               <p>
-                Both people must complete their photo
-                sessions before the card can be generated.
+                Both people must complete
+                their photo sessions
+                before the card can be
+                generated.
               </p>
 
               <button

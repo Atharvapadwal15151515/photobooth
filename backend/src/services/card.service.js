@@ -22,8 +22,8 @@ import {
 
 import AppError from "../utils/AppError.js";
 
-const CARD_WIDTH = 1080;
-const CARD_HEIGHT = 1080;
+const CARD_WIDTH = 900;
+const CARD_HEIGHT = 1800;
 
 const escapeXml = (value = "") =>
   String(value)
@@ -125,6 +125,45 @@ const getThemeAccent = (theme) => {
 
   return accents[theme] || accents.classic;
 };
+const createRoundedPhoto = async (
+  imageBuffer,
+  width,
+  height,
+  radius = 28
+) => {
+  const roundedMask = Buffer.from(`
+    <svg
+      width="${width}"
+      height="${height}"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <rect
+        x="0"
+        y="0"
+        width="${width}"
+        height="${height}"
+        rx="${radius}"
+        ry="${radius}"
+        fill="#ffffff"
+      />
+    </svg>
+  `);
+
+  return sharp(imageBuffer)
+    .rotate()
+    .resize(width, height, {
+      fit: "cover",
+      position: "centre",
+    })
+    .composite([
+      {
+        input: roundedMask,
+        blend: "dest-in",
+      },
+    ])
+    .png()
+    .toBuffer();
+};
 
 const createCardBuffer = async ({
   booth,
@@ -137,181 +176,432 @@ const createCardBuffer = async ({
   const accent =
     getThemeAccent(booth.theme);
 
-  const allPhotos = [];
-
-  const numberOfPairs = booth.photo_count;
-
-  for (
-    let index = 0;
-    index < numberOfPairs;
-    index += 1
-  ) {
-    allPhotos.push(creatorPhotos[index]);
-    allPhotos.push(recipientPhotos[index]);
-  }
-
-  const columns = 4;
-  const rows = Math.ceil(
-    allPhotos.length / columns
+  const sortedCreatorPhotos = [
+    ...creatorPhotos,
+  ].sort(
+    (firstPhoto, secondPhoto) =>
+      firstPhoto.photo_number -
+      secondPhoto.photo_number
   );
 
-  const photoWidth = 225;
-  const photoHeight = 190;
-  const horizontalGap = 20;
-  const verticalGap = 20;
-
-  const gridWidth =
-    columns * photoWidth +
-    (columns - 1) * horizontalGap;
-
-  const gridStartX =
-    (CARD_WIDTH - gridWidth) / 2;
-
-  const gridStartY = 220;
-
-  const maximumGridHeight = 650;
-
-  const calculatedGridHeight =
-    rows * photoHeight +
-    (rows - 1) * verticalGap;
-
-  const scaleFactor =
-    calculatedGridHeight >
-    maximumGridHeight
-      ? maximumGridHeight /
-        calculatedGridHeight
-      : 1;
-
-  const finalPhotoWidth = Math.floor(
-    photoWidth * scaleFactor
+  const sortedRecipientPhotos = [
+    ...recipientPhotos,
+  ].sort(
+    (firstPhoto, secondPhoto) =>
+      firstPhoto.photo_number -
+      secondPhoto.photo_number
   );
 
-  const finalPhotoHeight = Math.floor(
-    photoHeight * scaleFactor
-  );
+  const photoWidth = 350;
+  const photoHeight = 255;
 
-  const finalHorizontalGap = Math.floor(
-    horizontalGap * scaleFactor
-  );
+  const leftMargin = 70;
+  const columnGap = 60;
 
-  const finalVerticalGap = Math.floor(
-    verticalGap * scaleFactor
-  );
+  const creatorPhotoX = leftMargin;
 
-  const finalGridWidth =
-    columns * finalPhotoWidth +
-    (columns - 1) * finalHorizontalGap;
+  const recipientPhotoX =
+    creatorPhotoX +
+    photoWidth +
+    columnGap;
 
-  const finalGridStartX =
-    (CARD_WIDTH - finalGridWidth) / 2;
+  const firstRowY = 335;
+  const rowGap = 30;
 
-  const composites = [];
+  const photoRadius = 28;
 
-  for (
-    let index = 0;
-    index < allPhotos.length;
-    index += 1
-  ) {
-    const photo = allPhotos[index];
+  const creatorName =
+    booth.creator_name || "Creator";
 
-    const imageBuffer = await downloadImage(
-      photo.image_url
-    );
-
-    const resizedPhoto = await sharp(
-      imageBuffer
-    )
-      .rotate()
-      .resize(
-        finalPhotoWidth,
-        finalPhotoHeight,
-        {
-          fit: "cover",
-          position: "centre",
-        }
-      )
-      .png()
-      .toBuffer();
-
-    const column = index % columns;
-    const row = Math.floor(index / columns);
-
-    composites.push({
-      input: resizedPhoto,
-      left: Math.round(
-        finalGridStartX +
-          column *
-            (finalPhotoWidth +
-              finalHorizontalGap)
-      ),
-      top: Math.round(
-        gridStartY +
-          row *
-            (finalPhotoHeight +
-              finalVerticalGap)
-      ),
-    });
-  }
+  const recipientName =
+    booth.recipient_name || "Recipient";
 
   const heading =
     booth.title ||
-    `Happy Birthday, ${booth.recipient_name}!`;
+    `Happy Birthday, ${recipientName}!`;
 
   const message =
     booth.message ||
-    `With love from ${booth.creator_name}`;
+    `With love from ${creatorName}`;
 
-  const overlaySvg = `
+  const generatedDate =
+    new Intl.DateTimeFormat("en-IN", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    }).format(new Date());
+
+  const truncateText = (
+    value,
+    maximumLength
+  ) => {
+    const text = String(value || "");
+
+    if (text.length <= maximumLength) {
+      return text;
+    }
+
+    return `${text.slice(
+      0,
+      maximumLength - 3
+    )}...`;
+  };
+
+  const safeHeading = escapeXml(
+    truncateText(heading, 40)
+  );
+
+  const safeMessage = escapeXml(
+    truncateText(message, 65)
+  );
+
+  const safeCreatorName = escapeXml(
+    truncateText(creatorName, 18)
+  );
+
+  const safeRecipientName = escapeXml(
+    truncateText(recipientName, 18)
+  );
+
+  /*
+  |--------------------------------------------------------------------------
+  | Background decorations
+  |--------------------------------------------------------------------------
+  */
+
+  const backgroundSvg = `
     <svg
       width="${CARD_WIDTH}"
       height="${CARD_HEIGHT}"
       xmlns="http://www.w3.org/2000/svg"
     >
       <rect
-        x="35"
-        y="35"
-        width="1010"
-        height="1010"
-        rx="45"
+        x="24"
+        y="24"
+        width="${CARD_WIDTH - 48}"
+        height="${CARD_HEIGHT - 48}"
+        rx="55"
         fill="none"
         stroke="${accent}"
-        stroke-width="6"
+        stroke-width="5"
       />
 
+      <circle
+        cx="82"
+        cy="100"
+        r="15"
+        fill="${accent}"
+        opacity="0.22"
+      />
+
+      <circle
+        cx="820"
+        cy="125"
+        r="28"
+        fill="${accent}"
+        opacity="0.12"
+      />
+
+      <circle
+        cx="105"
+        cy="1680"
+        r="34"
+        fill="${accent}"
+        opacity="0.12"
+      />
+
+      <circle
+        cx="810"
+        cy="1705"
+        r="16"
+        fill="${accent}"
+        opacity="0.22"
+      />
+
+      <path
+        d="M155 92 L164 113 L187 114 L169 128 L175 151 L155 138 L135 151 L141 128 L123 114 L146 113 Z"
+        fill="${accent}"
+        opacity="0.18"
+      />
+
+      <path
+        d="M735 1615 L744 1636 L767 1637 L749 1651 L755 1674 L735 1661 L715 1674 L721 1651 L703 1637 L726 1636 Z"
+        fill="${accent}"
+        opacity="0.18"
+      />
+
+      ${Array.from({
+        length: booth.photo_count,
+      })
+        .map((_, index) => {
+          const top =
+            firstRowY +
+            index *
+              (photoHeight + rowGap);
+
+          return `
+            <rect
+              x="${creatorPhotoX - 9}"
+              y="${top - 9}"
+              width="${photoWidth + 18}"
+              height="${photoHeight + 18}"
+              rx="${photoRadius + 8}"
+              fill="#000000"
+              opacity="0.08"
+            />
+
+            <rect
+              x="${recipientPhotoX - 9}"
+              y="${top - 9}"
+              width="${photoWidth + 18}"
+              height="${photoHeight + 18}"
+              rx="${photoRadius + 8}"
+              fill="#000000"
+              opacity="0.08"
+            />
+          `;
+        })
+        .join("")}
+    </svg>
+  `;
+
+  /*
+  |--------------------------------------------------------------------------
+  | Prepare paired photos
+  |--------------------------------------------------------------------------
+  */
+
+  const photoComposites = [];
+
+  for (
+    let index = 0;
+    index < booth.photo_count;
+    index += 1
+  ) {
+    const creatorPhoto =
+      sortedCreatorPhotos[index];
+
+    const recipientPhoto =
+      sortedRecipientPhotos[index];
+
+    if (!creatorPhoto || !recipientPhoto) {
+      throw new AppError(
+        `Photo pair ${index + 1} is incomplete`,
+        400
+      );
+    }
+
+    const [
+      creatorImageBuffer,
+      recipientImageBuffer,
+    ] = await Promise.all([
+      downloadImage(creatorPhoto.image_url),
+      downloadImage(
+        recipientPhoto.image_url
+      ),
+    ]);
+
+    const [
+      roundedCreatorPhoto,
+      roundedRecipientPhoto,
+    ] = await Promise.all([
+      createRoundedPhoto(
+        creatorImageBuffer,
+        photoWidth,
+        photoHeight,
+        photoRadius
+      ),
+      createRoundedPhoto(
+        recipientImageBuffer,
+        photoWidth,
+        photoHeight,
+        photoRadius
+      ),
+    ]);
+
+    const rowY =
+      firstRowY +
+      index * (photoHeight + rowGap);
+
+    photoComposites.push({
+      input: roundedCreatorPhoto,
+      left: creatorPhotoX,
+      top: rowY,
+    });
+
+    photoComposites.push({
+      input: roundedRecipientPhoto,
+      left: recipientPhotoX,
+      top: rowY,
+    });
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | Text and footer
+  |--------------------------------------------------------------------------
+  */
+
+  const textOverlaySvg = `
+    <svg
+      width="${CARD_WIDTH}"
+      height="${CARD_HEIGHT}"
+      xmlns="http://www.w3.org/2000/svg"
+    >
       <text
-        x="540"
-        y="105"
+        x="${CARD_WIDTH / 2}"
+        y="118"
         text-anchor="middle"
         font-family="Arial, Helvetica, sans-serif"
-        font-size="54"
+        font-size="22"
+        font-weight="700"
+        letter-spacing="6"
+        fill="${accent}"
+      >
+        PHOTO BOOTH
+      </text>
+
+      <text
+        x="${CARD_WIDTH / 2}"
+        y="198"
+        text-anchor="middle"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="50"
         font-weight="700"
         fill="${accent}"
       >
-        ${escapeXml(heading)}
+        ${safeHeading}
       </text>
 
       <text
-        x="540"
-        y="165"
+        x="${CARD_WIDTH / 2}"
+        y="250"
         text-anchor="middle"
         font-family="Arial, Helvetica, sans-serif"
-        font-size="25"
+        font-size="24"
+        fill="${accent}"
+        opacity="0.82"
+      >
+        ${safeCreatorName} + ${safeRecipientName}
+      </text>
+
+      <line
+        x1="120"
+        y1="282"
+        x2="780"
+        y2="282"
+        stroke="${accent}"
+        stroke-width="2"
+        opacity="0.28"
+      />
+
+      <text
+        x="${creatorPhotoX + photoWidth / 2}"
+        y="320"
+        text-anchor="middle"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="21"
+        font-weight="700"
         fill="${accent}"
       >
-        ${escapeXml(
-          `${booth.creator_name} + ${booth.recipient_name}`
-        )}
+        ${safeCreatorName}
       </text>
 
       <text
-        x="540"
-        y="1010"
+        x="${recipientPhotoX + photoWidth / 2}"
+        y="320"
         text-anchor="middle"
         font-family="Arial, Helvetica, sans-serif"
-        font-size="25"
+        font-size="21"
+        font-weight="700"
         fill="${accent}"
       >
-        ${escapeXml(message)}
+        ${safeRecipientName}
+      </text>
+
+      ${Array.from({
+        length: booth.photo_count,
+      })
+        .map((_, index) => {
+          const rowY =
+            firstRowY +
+            index *
+              (photoHeight + rowGap);
+
+          return `
+            <circle
+              cx="${CARD_WIDTH / 2}"
+              cy="${rowY + photoHeight / 2}"
+              r="18"
+              fill="${accent}"
+              opacity="0.92"
+            />
+
+            <text
+              x="${CARD_WIDTH / 2}"
+              y="${
+                rowY +
+                photoHeight / 2 +
+                7
+              }"
+              text-anchor="middle"
+              font-family="Arial, Helvetica, sans-serif"
+              font-size="18"
+              font-weight="700"
+              fill="#ffffff"
+            >
+              ${index + 1}
+            </text>
+          `;
+        })
+        .join("")}
+
+      <line
+        x1="120"
+        y1="1512"
+        x2="780"
+        y2="1512"
+        stroke="${accent}"
+        stroke-width="2"
+        opacity="0.28"
+      />
+
+      <text
+        x="${CARD_WIDTH / 2}"
+        y="1582"
+        text-anchor="middle"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="29"
+        font-weight="600"
+        fill="${accent}"
+      >
+        ${safeMessage}
+      </text>
+
+      <text
+        x="${CARD_WIDTH / 2}"
+        y="1640"
+        text-anchor="middle"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="21"
+        fill="${accent}"
+        opacity="0.78"
+      >
+        ${escapeXml(generatedDate)}
+      </text>
+
+      <text
+        x="${CARD_WIDTH / 2}"
+        y="1710"
+        text-anchor="middle"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="17"
+        font-weight="700"
+        letter-spacing="4"
+        fill="${accent}"
+        opacity="0.62"
+      >
+        MADE TOGETHER
       </text>
     </svg>
   `;
@@ -325,17 +615,26 @@ const createCardBuffer = async ({
     },
   })
     .composite([
-      ...composites,
       {
-        input: Buffer.from(overlaySvg),
+        input: Buffer.from(backgroundSvg),
+        left: 0,
+        top: 0,
+      },
+      ...photoComposites,
+      {
+        input: Buffer.from(
+          textOverlaySvg
+        ),
         left: 0,
         top: 0,
       },
     ])
-    .png()
+    .png({
+      quality: 100,
+      compressionLevel: 9,
+    })
     .toBuffer();
 };
-
 const validateBoothForGeneration = async (
   boothId
 ) => {
