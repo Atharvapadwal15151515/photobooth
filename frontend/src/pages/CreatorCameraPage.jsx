@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+
 import Navbar from "../components/Navbar";
 import CameraCapture from "../components/CameraCapture";
 import PhotoPreview from "../components/PhotoPreview";
+
 import {
   completeParticipant,
   deletePhoto,
@@ -17,7 +19,11 @@ function CreatorCameraPage() {
     localStorage.getItem("currentBooth") || "{}"
   );
 
-  const requiredCount = Number(storedBooth.photoCount || 4);
+  const requiredCount = Number(
+    storedBooth.photoCount ||
+      storedBooth.photo_count ||
+      4
+  );
 
   const [photos, setPhotos] = useState([]);
   const [captureIndex, setCaptureIndex] = useState(null);
@@ -25,24 +31,89 @@ function CreatorCameraPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
 
+  const photosRef = useRef([]);
+
+  useEffect(() => {
+    photosRef.current = photos;
+  }, [photos]);
+
   useEffect(() => {
     return () => {
-      photos.forEach((photo) => {
-        if (photo.previewUrl?.startsWith("blob:")) {
+      photosRef.current.forEach((photo) => {
+        if (photo?.previewUrl?.startsWith("blob:")) {
           URL.revokeObjectURL(photo.previewUrl);
         }
       });
     };
-  }, [photos]);
+  }, []);
 
-  const handleCapture = async ({ file, previewUrl }) => {
+  const extractUploadedPhoto = (response) => {
+    const responseBody = response?.data ?? response ?? {};
+
+    return (
+      responseBody?.data?.photo ??
+      responseBody?.data ??
+      responseBody?.photo ??
+      responseBody
+    );
+  };
+
+  const getPhotoId = (photo) => {
+    return (
+      photo?.photo_id ??
+      photo?.photoId ??
+      photo?.id ??
+      null
+    );
+  };
+
+  const handleCapture = async (captureResult) => {
+    const file = captureResult?.file ?? null;
+    const previewUrl = captureResult?.previewUrl ?? null;
+
+    console.log("Creator capture received:", {
+      file,
+      previewUrl,
+      isBlob: file instanceof Blob,
+      size: file?.size,
+    });
+
+    if (!(file instanceof Blob) || file.size === 0) {
+      if (previewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(previewUrl);
+      }
+
+      setError(
+        "The camera did not produce a valid image file."
+      );
+
+      return;
+    }
+
+    if (!previewUrl) {
+      setError("The photo preview could not be created.");
+      return;
+    }
+
+    if (!boothId || !participantId) {
+      URL.revokeObjectURL(previewUrl);
+
+      setError(
+        "The booth or creator participant information is missing."
+      );
+
+      return;
+    }
+
     if (isUploading) {
       URL.revokeObjectURL(previewUrl);
       return;
     }
 
     const photoNumber =
-      captureIndex !== null ? captureIndex + 1 : photos.length + 1;
+      captureIndex !== null
+        ? captureIndex + 1
+        : photos.length + 1;
 
     if (photoNumber > requiredCount) {
       URL.revokeObjectURL(previewUrl);
@@ -53,8 +124,15 @@ function CreatorCameraPage() {
       setIsUploading(true);
       setError("");
 
-      if (captureIndex !== null && photos[captureIndex]?.photo_id) {
-        await deletePhoto(photos[captureIndex].photo_id);
+      const existingPhoto =
+        captureIndex !== null
+          ? photos[captureIndex]
+          : null;
+
+      const existingPhotoId = getPhotoId(existingPhoto);
+
+      if (existingPhotoId) {
+        await deletePhoto(existingPhotoId);
       }
 
       const response = await uploadPhoto({
@@ -64,10 +142,22 @@ function CreatorCameraPage() {
         photoNumber,
       });
 
-      const uploadedPhoto = response.data || response;
+      const uploadedPhoto = extractUploadedPhoto(response);
 
       const photoRecord = {
         ...uploadedPhoto,
+
+        photo_id:
+          uploadedPhoto?.photo_id ??
+          uploadedPhoto?.photoId ??
+          uploadedPhoto?.id ??
+          null,
+
+        photo_number:
+          uploadedPhoto?.photo_number ??
+          uploadedPhoto?.photoNumber ??
+          photoNumber,
+
         previewUrl,
         file,
       };
@@ -75,14 +165,17 @@ function CreatorCameraPage() {
       setPhotos((currentPhotos) => {
         if (captureIndex !== null) {
           const updatedPhotos = [...currentPhotos];
+          const oldPhoto = updatedPhotos[captureIndex];
 
-          const oldPreview = updatedPhotos[captureIndex]?.previewUrl;
-
-          if (oldPreview?.startsWith("blob:")) {
-            URL.revokeObjectURL(oldPreview);
+          if (
+            oldPhoto?.previewUrl?.startsWith("blob:") &&
+            oldPhoto.previewUrl !== previewUrl
+          ) {
+            URL.revokeObjectURL(oldPhoto.previewUrl);
           }
 
           updatedPhotos[captureIndex] = photoRecord;
+
           return updatedPhotos;
         }
 
@@ -91,14 +184,28 @@ function CreatorCameraPage() {
 
       setCaptureIndex(null);
     } catch (requestError) {
-      URL.revokeObjectURL(previewUrl);
-      setError(requestError.message || "Unable to upload the photo.");
+      if (previewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(previewUrl);
+      }
+
+      console.error("Creator photo upload error:", requestError);
+
+      setError(
+        requestError?.response?.data?.message ??
+          requestError?.response?.data?.error ??
+          requestError?.message ??
+          "Unable to upload the photo."
+      );
     } finally {
       setIsUploading(false);
     }
   };
 
   const handleRetake = (index) => {
+    if (isUploading || isCompleting) {
+      return;
+    }
+
     setCaptureIndex(index);
     setError("");
   };
@@ -106,11 +213,18 @@ function CreatorCameraPage() {
   const handleRemove = async (index) => {
     const photo = photos[index];
 
+    if (!photo || isUploading || isCompleting) {
+      return;
+    }
+
     try {
+      setIsUploading(true);
       setError("");
 
-      if (photo.photo_id) {
-        await deletePhoto(photo.photo_id);
+      const photoId = getPhotoId(photo);
+
+      if (photoId) {
+        await deletePhoto(photoId);
       }
 
       if (photo.previewUrl?.startsWith("blob:")) {
@@ -128,13 +242,30 @@ function CreatorCameraPage() {
 
       setCaptureIndex(null);
     } catch (requestError) {
-      setError(requestError.message || "Unable to remove the photo.");
+      console.error("Creator photo removal error:", requestError);
+
+      setError(
+        requestError?.response?.data?.message ??
+          requestError?.response?.data?.error ??
+          requestError?.message ??
+          "Unable to remove the photo."
+      );
+    } finally {
+      setIsUploading(false);
     }
   };
 
   const handleComplete = async () => {
     if (photos.length !== requiredCount) {
-      setError(`Take all ${requiredCount} photos before continuing.`);
+      setError(
+        `Take all ${requiredCount} photos before continuing.`
+      );
+
+      return;
+    }
+
+    if (!participantId || !boothId) {
+      setError("Creator session information is missing.");
       return;
     }
 
@@ -146,7 +277,17 @@ function CreatorCameraPage() {
 
       navigate(`/booth/${boothId}/waiting`);
     } catch (requestError) {
-      setError(requestError.message || "Unable to complete your session.");
+      console.error(
+        "Complete creator participant error:",
+        requestError
+      );
+
+      setError(
+        requestError?.response?.data?.message ??
+          requestError?.response?.data?.error ??
+          requestError?.message ??
+          "Unable to complete your session."
+      );
     } finally {
       setIsCompleting(false);
     }
@@ -155,7 +296,8 @@ function CreatorCameraPage() {
   const cameraDisabled =
     isUploading ||
     isCompleting ||
-    (photos.length >= requiredCount && captureIndex === null);
+    (photos.length >= requiredCount &&
+      captureIndex === null);
 
   return (
     <>
@@ -173,8 +315,8 @@ function CreatorCameraPage() {
             </h1>
 
             <p>
-              Look into the camera and take {requiredCount} photos. You can
-              retake any photo before finishing.
+              Look into the camera and take {requiredCount} photos.
+              You can retake any photo before finishing.
             </p>
           </div>
 
@@ -196,7 +338,11 @@ function CreatorCameraPage() {
             }
           />
 
-          {error && <p className="form-error">{error}</p>}
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
 
           <PhotoPreview
             photos={photos}
