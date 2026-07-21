@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import Navbar from "../components/Navbar";
-import CameraCapture from "../components/CameraCapture";
-import PhotoPreview from "../components/PhotoPreview";
 
+import PhotoPreview from "../components/PhotoPreview";
+import ResponseCameraLayout from "../components/ResponseCameraLayout";
+import { useCreatorPhotos } from "../hooks/useCreatorPhotos";
 import {
   completeParticipant,
   deletePhoto,
@@ -42,12 +43,29 @@ function RecipientCameraPage() {
   );
 
   const [photos, setPhotos] = useState([]);
-  const [captureIndex, setCaptureIndex] = useState(null);
-  const [error, setError] = useState("");
-  const [isUploading, setIsUploading] = useState(false);
-  const [isCompleting, setIsCompleting] = useState(false);
+const [captureIndex, setCaptureIndex] = useState(null);
+const [error, setError] = useState("");
+const [isUploading, setIsUploading] = useState(false);
+const [isCompleting, setIsCompleting] = useState(false);
 
-  const photosRef = useRef([]);
+const {
+  creatorPhotos,
+  isLoadingCreatorPhotos,
+  creatorPhotosError,
+} = useCreatorPhotos(boothId);
+
+const activePhotoIndex =
+  captureIndex !== null
+    ? captureIndex
+    : photos.length;
+
+const activePhotoNumber =
+  activePhotoIndex + 1;
+
+const activeCreatorPhoto =
+  creatorPhotos[activePhotoIndex] ?? null;
+
+const photosRef = useRef([]);
 
   useEffect(() => {
     photosRef.current = photos;
@@ -441,24 +459,32 @@ function RecipientCameraPage() {
             </div>
           )}
 
-          <CameraCapture
-            onCapture={handleCapture}
-            disabled={cameraDisabled}
-            buttonText={
-              isUploading
-                ? "Uploading..."
-                : captureIndex !== null
-                  ? `Retake Photo ${
-                      captureIndex + 1
-                    }`
-                  : photos.length <
-                      requiredCount
-                    ? `Take Photo ${
-                        photos.length + 1
-                      }`
-                    : "All Photos Taken"
-            }
-          />
+          <ResponseCameraLayout
+  creatorPhoto={activeCreatorPhoto}
+  photoNumber={activePhotoNumber}
+  isLoadingReference={isLoadingCreatorPhotos}
+  onCapture={handleCapture}
+  disabled={
+    cameraDisabled ||
+    isLoadingCreatorPhotos ||
+    !activeCreatorPhoto
+  }
+  buttonText={
+    isUploading
+      ? "Uploading..."
+      : captureIndex !== null
+        ? `Retake Photo ${captureIndex + 1}`
+        : photos.length < requiredCount
+          ? `Take Response ${photos.length + 1}`
+          : "All Photos Taken"
+  }
+/>
+
+{creatorPhotosError && (
+  <p className="form-error" role="alert">
+    {creatorPhotosError}
+  </p>
+)}
 
           {error && (
             <p
