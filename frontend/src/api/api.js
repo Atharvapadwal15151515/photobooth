@@ -9,7 +9,7 @@ const api = axios.create({
     "Content-Type": "application/json",
   },
 
-  timeout: 20000,
+  timeout: 60000,
 });
 
 /*
@@ -19,8 +19,7 @@ const api = axios.create({
 */
 
 export const createBooth = async (boothData) => {
-  const response = await api.post("/booths", boothData);
-  return response;
+  return api.post("/booths", boothData);
 };
 
 export const getBoothById = async (boothId) => {
@@ -28,8 +27,7 @@ export const getBoothById = async (boothId) => {
     throw new Error("Booth ID is required.");
   }
 
-  const response = await api.get(`/booths/${boothId}`);
-  return response;
+  return api.get(`/booths/${boothId}`);
 };
 
 export const getBoothByInviteToken = async (inviteToken) => {
@@ -37,11 +35,7 @@ export const getBoothByInviteToken = async (inviteToken) => {
     throw new Error("Invite token is required.");
   }
 
-  const response = await api.get(
-    `/booths/invite/${inviteToken}`
-  );
-
-  return response;
+  return api.get(`/booths/invite/${inviteToken}`);
 };
 
 /*
@@ -75,13 +69,9 @@ export const uploadPhoto = async ({
   formData.append("participantId", participantId);
   formData.append("photoNumber", String(photoNumber));
 
-  const response = await api.post("/photos", formData, {
-    headers: {
-      "Content-Type": "multipart/form-data",
-    },
+  return api.post("/photos", formData, {
+    timeout: 60000,
   });
-
-  return response;
 };
 
 export const getParticipantPhotos = async (
@@ -94,11 +84,9 @@ export const getParticipantPhotos = async (
     );
   }
 
-  const response = await api.get(
+  return api.get(
     `/photos/booth/${boothId}/participant/${participantId}`
   );
-
-  return response;
 };
 
 export const deletePhoto = async (photoId) => {
@@ -106,9 +94,7 @@ export const deletePhoto = async (photoId) => {
     throw new Error("Photo ID is required.");
   }
 
-  const response = await api.delete(`/photos/${photoId}`);
-
-  return response;
+  return api.delete(`/photos/${photoId}`);
 };
 
 /*
@@ -124,11 +110,9 @@ export const completeParticipant = async (
     throw new Error("Participant ID is required.");
   }
 
-  const response = await api.patch(
+  return api.patch(
     `/participants/${participantId}/complete`
   );
-
-  return response;
 };
 
 /*
@@ -142,11 +126,13 @@ export const generateCard = async (boothId) => {
     throw new Error("Booth ID is required.");
   }
 
-  const response = await api.post(
-    `/cards/generate/${boothId}`
+  return api.post(
+    `/cards/generate/${boothId}`,
+    {},
+    {
+      timeout: 90000,
+    }
   );
-
-  return response;
 };
 
 export const getGeneratedCard = async (boothId) => {
@@ -154,9 +140,7 @@ export const getGeneratedCard = async (boothId) => {
     throw new Error("Booth ID is required.");
   }
 
-  const response = await api.get(`/cards/${boothId}`);
-
-  return response;
+  return api.get(`/cards/${boothId}`);
 };
 
 /*
@@ -167,14 +151,19 @@ export const getGeneratedCard = async (boothId) => {
 
 api.interceptors.response.use(
   (response) => response,
-
   (error) => {
+    const status = error?.response?.status;
+
     const serverMessage =
       error?.response?.data?.message ||
       error?.response?.data?.error;
 
     if (serverMessage) {
       error.message = serverMessage;
+    } else if (status === 404) {
+      error.message = "The requested resource was not found.";
+    } else if (status === 413) {
+      error.message = "The selected image is too large.";
     } else if (error.code === "ECONNABORTED") {
       error.message =
         "The server took too long to respond.";
