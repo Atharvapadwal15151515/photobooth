@@ -164,12 +164,93 @@ const createRoundedPhoto = async (
     .png()
     .toBuffer();
 };
+const truncateText = (value, maxLength) => {
+  const text = String(value || "").trim();
 
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  return `${text.slice(0, maxLength - 3)}...`;
+};
+
+const wrapText = (
+  value,
+  maximumCharactersPerLine,
+  maximumLines = 2
+) => {
+  const words = String(value || "")
+    .trim()
+    .split(/\s+/);
+
+  const lines = [];
+  let currentLine = "";
+
+  for (const word of words) {
+    const possibleLine = currentLine
+      ? `${currentLine} ${word}`
+      : word;
+
+    if (
+      possibleLine.length <=
+      maximumCharactersPerLine
+    ) {
+      currentLine = possibleLine;
+    } else {
+      if (currentLine) {
+        lines.push(currentLine);
+      }
+
+      currentLine = word;
+    }
+
+    if (lines.length === maximumLines) {
+      break;
+    }
+  }
+
+  if (
+    currentLine &&
+    lines.length < maximumLines
+  ) {
+    lines.push(currentLine);
+  }
+
+  const originalText = words.join(" ");
+  const wrappedText = lines.join(" ");
+
+  if (
+    wrappedText.length <
+    originalText.length
+  ) {
+    const lastIndex = lines.length - 1;
+
+    lines[lastIndex] = truncateText(
+      lines[lastIndex],
+      maximumCharactersPerLine
+    );
+  }
+
+  return lines;
+};
 const createCardBuffer = async ({
   booth,
   creatorPhotos,
   recipientPhotos,
 }) => {
+  const longestHeadingLine = Math.max(
+  ...headingLines.map(
+    (line) => line.length
+  )
+);
+
+const headingFontSize =
+  longestHeadingLine > 25
+    ? 38
+    : longestHeadingLine > 18
+      ? 44
+      : 50;
+      
   const background =
     getThemeBackground(booth.theme);
 
@@ -192,9 +273,9 @@ const createCardBuffer = async ({
       secondPhoto.photo_number
   );
 
-  const photoWidth = 350;
-  const photoHeight = 255;
-
+const photoWidth = 340;
+const photoHeight = 245;
+const rowGap = 28;
   const leftMargin = 70;
   const columnGap = 60;
 
@@ -205,7 +286,10 @@ const createCardBuffer = async ({
     photoWidth +
     columnGap;
 
-  const firstRowY = 335;
+  const firstRowY =
+  headingLines.length > 1
+    ? 375
+    : 335;
   const rowGap = 30;
 
   const photoRadius = 28;
@@ -247,13 +331,23 @@ const createCardBuffer = async ({
     )}...`;
   };
 
-  const safeHeading = escapeXml(
-    truncateText(heading, 40)
-  );
+  const headingLines = wrapText(
+  heading,
+  28,
+  2
+);
 
-  const safeMessage = escapeXml(
-    truncateText(message, 65)
-  );
+const messageLines = wrapText(
+  message,
+  42,
+  2
+);
+
+const safeHeadingLines =
+  headingLines.map(escapeXml);
+
+const safeMessageLines =
+  messageLines.map(escapeXml);
 
   const safeCreatorName = escapeXml(
     truncateText(creatorName, 18)
@@ -268,343 +362,437 @@ const createCardBuffer = async ({
   | Background decorations
   |--------------------------------------------------------------------------
   */
+const backgroundSvg = `
+  <svg
+    width="${CARD_WIDTH}"
+    height="${CARD_HEIGHT}"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <defs>
+      <linearGradient
+        id="cardBackground"
+        x1="0%"
+        y1="0%"
+        x2="100%"
+        y2="100%"
+      >
+        <stop
+          offset="0%"
+          stop-color="${background}"
+        />
 
-  const backgroundSvg = `
-    <svg
+        <stop
+          offset="100%"
+          stop-color="#ffffff"
+          stop-opacity="0.38"
+        />
+      </linearGradient>
+    </defs>
+
+    <rect
+      x="0"
+      y="0"
       width="${CARD_WIDTH}"
       height="${CARD_HEIGHT}"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <rect
-        x="24"
-        y="24"
-        width="${CARD_WIDTH - 48}"
-        height="${CARD_HEIGHT - 48}"
-        rx="55"
-        fill="none"
-        stroke="${accent}"
-        stroke-width="5"
-      />
+      fill="url(#cardBackground)"
+    />
 
-      <circle
-        cx="82"
-        cy="100"
-        r="15"
-        fill="${accent}"
-        opacity="0.22"
-      />
+    <rect
+      x="24"
+      y="24"
+      width="${CARD_WIDTH - 48}"
+      height="${CARD_HEIGHT - 48}"
+      rx="55"
+      fill="none"
+      stroke="${accent}"
+      stroke-width="5"
+    />
 
-      <circle
-        cx="820"
-        cy="125"
-        r="28"
-        fill="${accent}"
-        opacity="0.12"
-      />
+    <circle
+      cx="82"
+      cy="100"
+      r="15"
+      fill="${accent}"
+      opacity="0.22"
+    />
 
-      <circle
-        cx="105"
-        cy="1680"
-        r="34"
-        fill="${accent}"
-        opacity="0.12"
-      />
+    <circle
+      cx="820"
+      cy="125"
+      r="28"
+      fill="${accent}"
+      opacity="0.12"
+    />
 
-      <circle
-        cx="810"
-        cy="1705"
-        r="16"
-        fill="${accent}"
-        opacity="0.22"
-      />
+    <circle
+      cx="105"
+      cy="1680"
+      r="34"
+      fill="${accent}"
+      opacity="0.12"
+    />
 
-      <path
-        d="M155 92 L164 113 L187 114 L169 128 L175 151 L155 138 L135 151 L141 128 L123 114 L146 113 Z"
-        fill="${accent}"
-        opacity="0.18"
-      />
+    <circle
+      cx="810"
+      cy="1705"
+      r="16"
+      fill="${accent}"
+      opacity="0.22"
+    />
 
-      <path
-        d="M735 1615 L744 1636 L767 1637 L749 1651 L755 1674 L735 1661 L715 1674 L721 1651 L703 1637 L726 1636 Z"
-        fill="${accent}"
-        opacity="0.18"
-      />
+    <path
+      d="M155 92 L164 113 L187 114 L169 128 L175 151 L155 138 L135 151 L141 128 L123 114 L146 113 Z"
+      fill="${accent}"
+      opacity="0.18"
+    />
 
-      ${Array.from({
-        length: booth.photo_count,
+    <path
+      d="M735 1615 L744 1636 L767 1637 L749 1651 L755 1674 L735 1661 L715 1674 L721 1651 L703 1637 L726 1636 Z"
+      fill="${accent}"
+      opacity="0.18"
+    />
+
+    ${Array.from({
+      length: booth.photo_count,
+    })
+      .map((_, index) => {
+        const top =
+          firstRowY +
+          index *
+            (photoHeight + rowGap);
+
+        return `
+          <rect
+            x="${creatorPhotoX - 12}"
+            y="${top - 12}"
+            width="${photoWidth + 24}"
+            height="${photoHeight + 24}"
+            rx="${photoRadius + 10}"
+            fill="#ffffff"
+            opacity="0.96"
+          />
+
+          <rect
+            x="${creatorPhotoX - 6}"
+            y="${top - 4}"
+            width="${photoWidth + 12}"
+            height="${photoHeight + 16}"
+            rx="${photoRadius + 7}"
+            fill="#000000"
+            opacity="0.07"
+          />
+
+          <rect
+            x="${recipientPhotoX - 12}"
+            y="${top - 12}"
+            width="${photoWidth + 24}"
+            height="${photoHeight + 24}"
+            rx="${photoRadius + 10}"
+            fill="#ffffff"
+            opacity="0.96"
+          />
+
+          <rect
+            x="${recipientPhotoX - 6}"
+            y="${top - 4}"
+            width="${photoWidth + 12}"
+            height="${photoHeight + 16}"
+            rx="${photoRadius + 7}"
+            fill="#000000"
+            opacity="0.07"
+          />
+        `;
       })
-        .map((_, index) => {
-          const top =
-            firstRowY +
-            index *
-              (photoHeight + rowGap);
+      .join("")}
+  </svg>
+`;
 
-          return `
-            <rect
-              x="${creatorPhotoX - 9}"
-              y="${top - 9}"
-              width="${photoWidth + 18}"
-              height="${photoHeight + 18}"
-              rx="${photoRadius + 8}"
-              fill="#000000"
-              opacity="0.08"
-            />
+/*
+|--------------------------------------------------------------------------
+| Prepare paired photos
+|--------------------------------------------------------------------------
+*/
 
-            <rect
-              x="${recipientPhotoX - 9}"
-              y="${top - 9}"
-              width="${photoWidth + 18}"
-              height="${photoHeight + 18}"
-              rx="${photoRadius + 8}"
-              fill="#000000"
-              opacity="0.08"
-            />
-          `;
-        })
-        .join("")}
-    </svg>
-  `;
+const photoComposites = [];
 
-  /*
-  |--------------------------------------------------------------------------
-  | Prepare paired photos
-  |--------------------------------------------------------------------------
-  */
+for (
+  let index = 0;
+  index < booth.photo_count;
+  index += 1
+) {
+  const creatorPhoto =
+    sortedCreatorPhotos[index];
 
-  const photoComposites = [];
+  const recipientPhoto =
+    sortedRecipientPhotos[index];
 
-  for (
-    let index = 0;
-    index < booth.photo_count;
-    index += 1
-  ) {
-    const creatorPhoto =
-      sortedCreatorPhotos[index];
-
-    const recipientPhoto =
-      sortedRecipientPhotos[index];
-
-    if (!creatorPhoto || !recipientPhoto) {
-      throw new AppError(
-        `Photo pair ${index + 1} is incomplete`,
-        400
-      );
-    }
-
-    const [
-      creatorImageBuffer,
-      recipientImageBuffer,
-    ] = await Promise.all([
-      downloadImage(creatorPhoto.image_url),
-      downloadImage(
-        recipientPhoto.image_url
-      ),
-    ]);
-
-    const [
-      roundedCreatorPhoto,
-      roundedRecipientPhoto,
-    ] = await Promise.all([
-      createRoundedPhoto(
-        creatorImageBuffer,
-        photoWidth,
-        photoHeight,
-        photoRadius
-      ),
-      createRoundedPhoto(
-        recipientImageBuffer,
-        photoWidth,
-        photoHeight,
-        photoRadius
-      ),
-    ]);
-
-    const rowY =
-      firstRowY +
-      index * (photoHeight + rowGap);
-
-    photoComposites.push({
-      input: roundedCreatorPhoto,
-      left: creatorPhotoX,
-      top: rowY,
-    });
-
-    photoComposites.push({
-      input: roundedRecipientPhoto,
-      left: recipientPhotoX,
-      top: rowY,
-    });
+  if (!creatorPhoto || !recipientPhoto) {
+    throw new AppError(
+      `Photo pair ${index + 1} is incomplete`,
+      400
+    );
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | Text and footer
-  |--------------------------------------------------------------------------
-  */
+  const [
+    creatorImageBuffer,
+    recipientImageBuffer,
+  ] = await Promise.all([
+    downloadImage(creatorPhoto.image_url),
+    downloadImage(
+      recipientPhoto.image_url
+    ),
+  ]);
 
-  const textOverlaySvg = `
-    <svg
-      width="${CARD_WIDTH}"
-      height="${CARD_HEIGHT}"
-      xmlns="http://www.w3.org/2000/svg"
+  const [
+    roundedCreatorPhoto,
+    roundedRecipientPhoto,
+  ] = await Promise.all([
+    createRoundedPhoto(
+      creatorImageBuffer,
+      photoWidth,
+      photoHeight,
+      photoRadius
+    ),
+    createRoundedPhoto(
+      recipientImageBuffer,
+      photoWidth,
+      photoHeight,
+      photoRadius
+    ),
+  ]);
+
+  const rowY =
+    firstRowY +
+    index * (photoHeight + rowGap);
+
+  photoComposites.push({
+    input: roundedCreatorPhoto,
+    left: creatorPhotoX,
+    top: rowY,
+  });
+
+  photoComposites.push({
+    input: roundedRecipientPhoto,
+    left: recipientPhotoX,
+    top: rowY,
+  });
+}
+
+/*
+|--------------------------------------------------------------------------
+| Text and footer
+|--------------------------------------------------------------------------
+*/
+
+const namesY =
+  safeHeadingLines.length > 1
+    ? 285
+    : 245;
+
+const separatorY =
+  safeHeadingLines.length > 1
+    ? 320
+    : 282;
+
+const columnLabelsY =
+  firstRowY - 15;
+
+const footerLineY = 1512;
+
+const messageStartY = 1570;
+
+const dateY =
+  safeMessageLines.length > 1
+    ? 1665
+    : 1630;
+
+const textOverlaySvg = `
+  <svg
+    width="${CARD_WIDTH}"
+    height="${CARD_HEIGHT}"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <text
+      x="${CARD_WIDTH / 2}"
+      y="108"
+      text-anchor="middle"
+      font-family="Arial, Helvetica, sans-serif"
+      font-size="21"
+      font-weight="700"
+      letter-spacing="7"
+      fill="${accent}"
     >
-      <text
-        x="${CARD_WIDTH / 2}"
-        y="118"
-        text-anchor="middle"
-        font-family="Arial, Helvetica, sans-serif"
-        font-size="22"
-        font-weight="700"
-        letter-spacing="6"
-        fill="${accent}"
-      >
-        PHOTO BOOTH
-      </text>
+      PHOTO BOOTH
+    </text>
 
-      <text
-        x="${CARD_WIDTH / 2}"
-        y="198"
-        text-anchor="middle"
-        font-family="Arial, Helvetica, sans-serif"
-        font-size="50"
-        font-weight="700"
-        fill="${accent}"
-      >
-        ${safeHeading}
-      </text>
-
-      <text
-        x="${CARD_WIDTH / 2}"
-        y="250"
-        text-anchor="middle"
-        font-family="Arial, Helvetica, sans-serif"
-        font-size="24"
-        fill="${accent}"
-        opacity="0.82"
-      >
-        ${safeCreatorName} + ${safeRecipientName}
-      </text>
-
-      <line
-        x1="120"
-        y1="282"
-        x2="780"
-        y2="282"
-        stroke="${accent}"
-        stroke-width="2"
-        opacity="0.28"
-      />
-
-      <text
-        x="${creatorPhotoX + photoWidth / 2}"
-        y="320"
-        text-anchor="middle"
-        font-family="Arial, Helvetica, sans-serif"
-        font-size="21"
-        font-weight="700"
-        fill="${accent}"
-      >
-        ${safeCreatorName}
-      </text>
-
-      <text
-        x="${recipientPhotoX + photoWidth / 2}"
-        y="320"
-        text-anchor="middle"
-        font-family="Arial, Helvetica, sans-serif"
-        font-size="21"
-        font-weight="700"
-        fill="${accent}"
-      >
-        ${safeRecipientName}
-      </text>
-
-      ${Array.from({
-        length: booth.photo_count,
-      })
-        .map((_, index) => {
-          const rowY =
-            firstRowY +
-            index *
-              (photoHeight + rowGap);
-
-          return `
-            <circle
-              cx="${CARD_WIDTH / 2}"
-              cy="${rowY + photoHeight / 2}"
-              r="18"
-              fill="${accent}"
-              opacity="0.92"
-            />
-
-            <text
+    <text
+      x="${CARD_WIDTH / 2}"
+      y="170"
+      text-anchor="middle"
+      font-family="Arial, Helvetica, sans-serif"
+      font-size="${headingFontSize}"
+      font-weight="700"
+      fill="${accent}"
+    >
+      ${safeHeadingLines
+        .map(
+          (line, index) => `
+            <tspan
               x="${CARD_WIDTH / 2}"
-              y="${
-                rowY +
-                photoHeight / 2 +
-                7
-              }"
-              text-anchor="middle"
-              font-family="Arial, Helvetica, sans-serif"
-              font-size="18"
-              font-weight="700"
-              fill="#ffffff"
+              dy="${index === 0 ? 0 : 50}"
             >
-              ${index + 1}
-            </text>
-          `;
-        })
+              ${line}
+            </tspan>
+          `
+        )
         .join("")}
+    </text>
 
-      <line
-        x1="120"
-        y1="1512"
-        x2="780"
-        y2="1512"
-        stroke="${accent}"
-        stroke-width="2"
-        opacity="0.28"
-      />
+    <text
+      x="${CARD_WIDTH / 2}"
+      y="${namesY}"
+      text-anchor="middle"
+      font-family="Arial, Helvetica, sans-serif"
+      font-size="23"
+      fill="${accent}"
+      opacity="0.82"
+    >
+      ${safeCreatorName} + ${safeRecipientName}
+    </text>
 
-      <text
-        x="${CARD_WIDTH / 2}"
-        y="1582"
-        text-anchor="middle"
-        font-family="Arial, Helvetica, sans-serif"
-        font-size="29"
-        font-weight="600"
-        fill="${accent}"
-      >
-        ${safeMessage}
-      </text>
+    <line
+      x1="120"
+      y1="${separatorY}"
+      x2="780"
+      y2="${separatorY}"
+      stroke="${accent}"
+      stroke-width="2"
+      opacity="0.28"
+    />
 
-      <text
-        x="${CARD_WIDTH / 2}"
-        y="1640"
-        text-anchor="middle"
-        font-family="Arial, Helvetica, sans-serif"
-        font-size="21"
-        fill="${accent}"
-        opacity="0.78"
-      >
-        ${escapeXml(generatedDate)}
-      </text>
+    <text
+      x="${creatorPhotoX + photoWidth / 2}"
+      y="${columnLabelsY}"
+      text-anchor="middle"
+      font-family="Arial, Helvetica, sans-serif"
+      font-size="20"
+      font-weight="700"
+      fill="${accent}"
+    >
+      ${safeCreatorName}
+    </text>
 
-      <text
-        x="${CARD_WIDTH / 2}"
-        y="1710"
-        text-anchor="middle"
-        font-family="Arial, Helvetica, sans-serif"
-        font-size="17"
-        font-weight="700"
-        letter-spacing="4"
-        fill="${accent}"
-        opacity="0.62"
-      >
-        MADE TOGETHER
-      </text>
-    </svg>
-  `;
+    <text
+      x="${recipientPhotoX + photoWidth / 2}"
+      y="${columnLabelsY}"
+      text-anchor="middle"
+      font-family="Arial, Helvetica, sans-serif"
+      font-size="20"
+      font-weight="700"
+      fill="${accent}"
+    >
+      ${safeRecipientName}
+    </text>
+
+    ${Array.from({
+      length: booth.photo_count,
+    })
+      .map((_, index) => {
+        const rowY =
+          firstRowY +
+          index *
+            (photoHeight + rowGap);
+
+        return `
+          <circle
+            cx="${CARD_WIDTH / 2}"
+            cy="${rowY + photoHeight / 2}"
+            r="17"
+            fill="${accent}"
+            opacity="0.95"
+            stroke="#ffffff"
+            stroke-width="3"
+          />
+
+          <text
+            x="${CARD_WIDTH / 2}"
+            y="${
+              rowY +
+              photoHeight / 2 +
+              6
+            }"
+            text-anchor="middle"
+            font-family="Arial, Helvetica, sans-serif"
+            font-size="17"
+            font-weight="700"
+            fill="#ffffff"
+          >
+            ${index + 1}
+          </text>
+        `;
+      })
+      .join("")}
+
+    <line
+      x1="120"
+      y1="${footerLineY}"
+      x2="780"
+      y2="${footerLineY}"
+      stroke="${accent}"
+      stroke-width="2"
+      opacity="0.28"
+    />
+
+    <text
+      x="${CARD_WIDTH / 2}"
+      y="${messageStartY}"
+      text-anchor="middle"
+      font-family="Arial, Helvetica, sans-serif"
+      font-size="25"
+      font-weight="600"
+      fill="${accent}"
+    >
+      ${safeMessageLines
+        .map(
+          (line, index) => `
+            <tspan
+              x="${CARD_WIDTH / 2}"
+              dy="${index === 0 ? 0 : 38}"
+            >
+              ${line}
+            </tspan>
+          `
+        )
+        .join("")}
+    </text>
+
+    <text
+      x="${CARD_WIDTH / 2}"
+      y="${dateY}"
+      text-anchor="middle"
+      font-family="Arial, Helvetica, sans-serif"
+      font-size="20"
+      fill="${accent}"
+      opacity="0.78"
+    >
+      ${escapeXml(generatedDate)}
+    </text>
+
+    <text
+      x="${CARD_WIDTH / 2}"
+      y="1730"
+      text-anchor="middle"
+      font-family="Arial, Helvetica, sans-serif"
+      font-size="16"
+      font-weight="700"
+      letter-spacing="4"
+      fill="${accent}"
+      opacity="0.62"
+    >
+      MADE TOGETHER
+    </text>
+  </svg>
+`;
 
   return sharp({
     create: {
@@ -635,6 +823,7 @@ const createCardBuffer = async ({
     })
     .toBuffer();
 };
+
 const validateBoothForGeneration = async (
   boothId
 ) => {
