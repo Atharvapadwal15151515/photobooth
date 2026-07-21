@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function CameraCapture({
   onCapture,
@@ -9,12 +9,13 @@ function CameraCapture({
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
 
-  const [cameraError, setCameraError] = useState("");
-  const [cameraReady, setCameraReady] = useState(false);
   const [facingMode, setFacingMode] = useState("user");
-  const [isStarting, setIsStarting] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+  const [isStartingCamera, setIsStartingCamera] =
+    useState(true);
+  const [isCapturing, setIsCapturing] = useState(false);
 
-  const stopCamera = useCallback(() => {
+  const stopCamera = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => {
         track.stop();
@@ -26,64 +27,71 @@ function CameraCapture({
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+  };
 
-    setCameraReady(false);
-  }, []);
-
-  const startCamera = useCallback(async () => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraError("Your browser does not support camera access.");
-      return;
-    }
-
+  const startCamera = async () => {
     try {
-      setIsStarting(true);
+      setIsStartingCamera(true);
       setCameraError("");
+
       stopCamera();
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: {
-            ideal: facingMode,
+      if (
+        !navigator.mediaDevices ||
+        !navigator.mediaDevices.getUserMedia
+      ) {
+        throw new Error(
+          "Camera access is not supported by this browser."
+        );
+      }
+
+      const stream =
+        await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: {
+              ideal: facingMode,
+            },
+            width: {
+              ideal: 1280,
+            },
+            height: {
+              ideal: 720,
+            },
           },
-          width: {
-            ideal: 1280,
-          },
-          height: {
-            ideal: 720,
-          },
-        },
-        audio: false,
-      });
+          audio: false,
+        });
 
       streamRef.current = stream;
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+
         await videoRef.current.play();
       }
-
-      setCameraReady(true);
     } catch (error) {
-      console.error("Camera error:", error);
+      console.error("Camera start error:", error);
 
-      if (error.name === "NotAllowedError") {
+      if (error?.name === "NotAllowedError") {
         setCameraError(
-          "Camera permission was denied. Allow camera access in your browser settings."
+          "Camera permission was denied. Allow camera access and reload the page."
         );
-      } else if (error.name === "NotFoundError") {
-        setCameraError("No camera was found on this device.");
-      } else if (error.name === "NotReadableError") {
+      } else if (error?.name === "NotFoundError") {
+        setCameraError(
+          "No camera was found on this device."
+        );
+      } else if (error?.name === "NotReadableError") {
         setCameraError(
           "The camera is already being used by another application."
         );
       } else {
-        setCameraError("Unable to access the camera.");
+        setCameraError(
+          error?.message || "Unable to start the camera."
+        );
       }
     } finally {
-      setIsStarting(false);
+      setIsStartingCamera(false);
     }
-  }, [facingMode, stopCamera]);
+  };
 
   useEffect(() => {
     startCamera();
@@ -91,65 +99,132 @@ function CameraCapture({
     return () => {
       stopCamera();
     };
-  }, [startCamera, stopCamera]);
+  }, [facingMode]);
 
-  const handleCapture = () => {
+  const createImageBlob = (canvas) => {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            reject(
+              new Error(
+                "The captured image could not be created."
+              )
+            );
+            return;
+          }
+
+          resolve(blob);
+        },
+        "image/jpeg",
+        0.9
+      );
+    });
+  };
+
+  const handleTakePhoto = async () => {
+    if (disabled || isCapturing) {
+      return;
+    }
+
     const video = videoRef.current;
     const canvas = canvasRef.current;
 
-    if (!video || !canvas || !cameraReady || disabled) {
+    if (!video || !canvas) {
+      setCameraError("The camera is not ready.");
       return;
     }
 
-    const width = video.videoWidth;
-    const height = video.videoHeight;
-
-    if (!width || !height) {
-      setCameraError("Camera is not ready yet.");
+    if (
+      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+      !video.videoWidth ||
+      !video.videoHeight
+    ) {
+      setCameraError(
+        "The camera is still loading. Try again in a moment."
+      );
       return;
     }
 
-    canvas.width = width;
-    canvas.height = height;
+    try {
+      setIsCapturing(true);
+      setCameraError("");
 
-    const context = canvas.getContext("2d");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
 
-    if (!context) {
-      setCameraError("Unable to process the captured image.");
-      return;
-    }
+      const context = canvas.getContext("2d");
 
-    if (facingMode === "user") {
-      context.translate(width, 0);
-      context.scale(-1, 1);
-    }
+      if (!context) {
+        throw new Error(
+          "Unable to prepare the captured image."
+        );
+      }
 
-    context.drawImage(video, 0, 0, width, height);
+      /*
+       * Mirror front-camera photos so the saved image matches
+       * what the user sees in the preview.
+       */
+      if (facingMode === "user") {
+        context.save();
+        context.translate(canvas.width, 0);
+        context.scale(-1, 1);
 
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          setCameraError("Unable to capture the photo.");
-          return;
-        }
+        context.drawImage(
+          video,
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        );
 
-        const file = new File([blob], `photo-${Date.now()}.jpg`, {
+        context.restore();
+      } else {
+        context.drawImage(
+          video,
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        );
+      }
+
+      const blob = await createImageBlob(canvas);
+
+      const file = new File(
+        [blob],
+        `photo-${Date.now()}.jpg`,
+        {
           type: "image/jpeg",
-        });
+          lastModified: Date.now(),
+        }
+      );
 
-        const previewUrl = URL.createObjectURL(blob);
+      const previewUrl = URL.createObjectURL(file);
 
-        onCapture?.({
-          file,
-          previewUrl,
-        });
-      },
-      "image/jpeg",
-      0.9
-    );
+      console.log("CAPTURED FILE:", file);
+      console.log("CAPTURED FILE SIZE:", file.size);
+
+      await onCapture({
+        file,
+        previewUrl,
+      });
+    } catch (error) {
+      console.error("Photo capture error:", error);
+
+      setCameraError(
+        error?.message || "Unable to capture the photo."
+      );
+    } finally {
+      setIsCapturing(false);
+    }
   };
 
-  const switchCamera = () => {
+  const handleSwitchCamera = () => {
+    if (disabled || isCapturing) {
+      return;
+    }
+
     setFacingMode((currentMode) =>
       currentMode === "user" ? "environment" : "user"
     );
@@ -158,56 +233,62 @@ function CameraCapture({
   return (
     <section className="camera-capture">
       <div className="camera-frame">
+        {isStartingCamera && (
+          <div className="camera-status">
+            Starting camera...
+          </div>
+        )}
+
         <video
           ref={videoRef}
-          className={`camera-video ${
-            facingMode === "user" ? "camera-video-mirrored" : ""
-          }`}
+          className={
+            facingMode === "user"
+              ? "camera-video camera-video-mirrored"
+              : "camera-video"
+          }
           autoPlay
-          playsInline
           muted
+          playsInline
         />
 
-        {!cameraReady && !cameraError && (
-          <div className="camera-overlay">
-            <p>{isStarting ? "Starting camera..." : "Waiting for camera..."}</p>
-          </div>
-        )}
-
-        {cameraError && (
-          <div className="camera-overlay camera-error">
-            <p>{cameraError}</p>
-
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={startCamera}
-            >
-              Try Again
-            </button>
-          </div>
-        )}
+        <canvas
+          ref={canvasRef}
+          style={{ display: "none" }}
+        />
       </div>
 
-      <canvas ref={canvasRef} className="camera-canvas" />
+      {cameraError && (
+        <p className="form-error" role="alert">
+          {cameraError}
+        </p>
+      )}
 
       <div className="camera-actions">
         <button
           type="button"
-          className="secondary-button"
-          onClick={switchCamera}
-          disabled={disabled || isStarting}
+          className="primary-button camera-capture-button"
+          onClick={handleTakePhoto}
+          disabled={
+            disabled ||
+            isStartingCamera ||
+            isCapturing ||
+            Boolean(cameraError)
+          }
         >
-          Switch Camera
+          {isCapturing ? "Capturing..." : buttonText}
         </button>
 
         <button
           type="button"
-          className="primary-button capture-button"
-          onClick={handleCapture}
-          disabled={!cameraReady || disabled}
+          className="secondary-button camera-switch-button"
+          onClick={handleSwitchCamera}
+          disabled={
+            disabled ||
+            isStartingCamera ||
+            isCapturing
+          }
         >
-          {buttonText}
+          Switch Camera
         </button>
       </div>
     </section>
