@@ -463,10 +463,9 @@ const recipientFromArray = participants.find(
                 onChange={handleChange}
                 disabled={isSubmitting}
               >
-                <option value={2}>2 photos</option>
+               
                 <option value={4}>4 photos</option>
-                <option value={6}>6 photos</option>
-                <option value={8}>8 photos</option>
+              
               </select>
             </div>
           </div>
