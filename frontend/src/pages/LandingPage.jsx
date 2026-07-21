@@ -33,7 +33,7 @@ function LandingPage() {
             <div className="preview-card">
               <div className="preview-title">
                 <span>Happy Birthday!</span>
-                <strong>Harshita & Sakshi</strong>
+                <strong>Friends</strong>
               </div>
 
               <div className="preview-photo-grid">
