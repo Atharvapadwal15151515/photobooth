@@ -275,7 +275,7 @@ const headingFontSize =
 
 const photoWidth = 340;
 const photoHeight = 245;
-const rowGap = 28;
+
   const leftMargin = 70;
   const columnGap = 60;
 
