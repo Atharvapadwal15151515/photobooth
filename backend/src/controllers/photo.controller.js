@@ -19,6 +19,9 @@ import {
  */
 export const uploadPhoto = asyncHandler(
   async (req, res) => {
+
+    console.log("BODY:", req.body);
+console.log("FILE:", req.file);
     const photo = await saveParticipantPhoto({
       boothId: req.body.boothId,
       participantId: req.body.participantId,
